@@ -6,6 +6,12 @@
 #define BMP180_CTRL_MEAS 0xF4
 #define BMP180_OUT_MSB 0xF6
 
+enum BMP180_REGISTERS : uint8_t{
+  OUT_MSB = 0xF6,
+  OUT_LSB = 0xF7,
+  CTRL_MEAS = 0xF4
+};
+
 void setup() {
   DDRD |= 0b00000010; //TX = output
   DDRD &= 0b11111110; //RX = input
@@ -31,14 +37,36 @@ class DS3231{
     void printDS3231();
 };
 
+class BMP180{
+  private:
+    int16_t bmpAC1;
+    int16_t bmpAC2;
+    int16_t bmpAC3;
+    uint16_t bmpAC4;
+    uint16_t bmpAC5;
+    uint16_t bmpAC6;
+    int16_t bmpB1;
+    int16_t bmpB2;
+    int16_t bmpMB;
+    int16_t bmpMC;
+    int16_t bmpMD;
+    int32_t bmpUT;
+    int32_t bmpUP;
+    int32_t bmpT;
+    int32_t bmpP;
+  public:
+    void getCalibrationData();
+    void getUT();
+    uint8_t readRegisterBMP180(uint8_t reg);
+    void writeRegisterBMP180(uint8_t , uint8_t);
+};
+
 void loop() {
-  DS3231 x;
-  uint8_t arr[6] = {20, 34, 8, 3, 31, 7};
-  x.initDS3231(24, arr);
+  BMP180 a;
+  delay(3000);
+  a.getCalibrationData();
   while(1){
-    x.getDataDS3231();
-    x.printDS3231();
-    delay(1000);
+
   }
 }
 
@@ -154,6 +182,61 @@ void DS3231::printDS3231(){
   sprintf(buffer, "%d-%d-%d %d:%d:%d", year,month, date, hour, minute, second);
   Serial.println(buffer);
 }
+
+void BMP180::getCalibrationData(){
+  Wire.beginTransmission(BMP180_ADDR);
+  Wire.write(0xAA);
+  Wire.endTransmission(BMP180_ADDR);
+
+  Wire.requestFrom(BMP180_ADDR, 22);
+  bmpAC1 = Wire.read() << 8;
+  bmpAC1 |= Wire.read();
+  bmpAC2 = Wire.read() << 8;
+  bmpAC2 |= Wire.read();
+  bmpAC3 = Wire.read() << 8;
+  bmpAC3 |= Wire.read();
+  bmpAC4 = Wire.read() << 8;
+  bmpAC4 |= Wire.read();
+  bmpAC5 = Wire.read() << 8;
+  bmpAC5 |= Wire.read();
+  bmpAC6 = Wire.read() << 8;
+  bmpAC6 |= Wire.read();
+  bmpB1 = Wire.read() << 8;
+  bmpB1 |= Wire.read();
+  bmpB2 = Wire.read() << 8;
+  bmpB2 |= Wire.read();
+  bmpMB = Wire.read() << 8;
+  bmpMB |= Wire.read();
+  bmpMC = Wire.read() << 8; 
+  bmpMC |= Wire.read();
+  bmpMD = Wire.read() << 8;
+  bmpMD |= Wire.read();
+}
+
+void BMP180:: getUT(){
+  writeRegisterBMP180(0xF4, 0x2E);
+  delay(5);
+  bmpUT = readRegisterBMP180(0xF6) << 8;
+  bmpUT |= readRegisterBMP180(0xF7);
+}
+
+uint8_t readRegisterBMP180(uint8_t reg){
+  Wire.beginTransmission(BMP180_ADDR);
+  Wire.write(reg);
+  Wire.endTransmission(BMP180_ADDR);
+
+  Wire.requestFrom(BMP180_ADDR, 1);
+  uint8_t result = Wire.read();
+  return result;
+}
+
+void BMP180:: writeRegisterBMP180(uint8_t reg, uint8_t val){
+  Wire.beginTransmission(BMP180_ADDR);
+  Wire.write(reg);
+  Wire.write(val);
+  Wire.endTransmission(BMP180_ADDR);
+}
+
 
 uint8_t bcd2dec(uint8_t bcd){
   return bcd/16*10 + bcd%16;
