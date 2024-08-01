@@ -6,6 +6,8 @@
 #define BMP180_CTRL_MEAS 0xF4
 #define BMP180_OUT_MSB 0xF6
 
+#define OSS_BMP180 0b00
+
 enum BMP180_REGISTERS : uint8_t{
   OUT_MSB = 0xF6,
   OUT_LSB = 0xF7,
@@ -52,21 +54,45 @@ class BMP180{
     int16_t bmpMD;
     int32_t bmpUT;
     int32_t bmpUP;
+    int32_t bmpB5;
     int32_t bmpT;
     int32_t bmpP;
   public:
     void getCalibrationData();
-    void getUT();
+    void getbmpUT();
+    void getbmpUP();
     uint8_t readRegisterBMP180(uint8_t reg);
     void writeRegisterBMP180(uint8_t , uint8_t);
+    void getbmpT();
+    void getbmpB5();
+    void getbmpP();
+
+    void printCalibrationData();
+    void printUT();
+    void printUP();
+    void printB5();
+    void printT();
+    void printP();
 };
 
 void loop() {
   BMP180 a;
-  delay(3000);
-  a.getCalibrationData();
-  while(1){
+  delay(1000);
 
+  /*a.getbmpP();
+  a.printCalibrationData();
+  a.printB5();
+  a.printUT();
+  a.printT();*/
+  a.getbmpP();
+  a.getbmpT();
+  a.printCalibrationData();
+  a.printUT();
+  a.printB5();
+  a.printT();
+  //a.printP();
+  while(1){
+    
   }
 }
 
@@ -108,20 +134,6 @@ unsigned char * readByte(){
   return result;
 }
 
-unsigned char * readRegister_BMP180(unsigned char * data, int size){
-  Wire.beginTransmission(BMP180_ADDR); 
-  Wire.write(data[0]);
-  Wire.endTransmission(BMP180_ADDR);
-
-  Wire.requestFrom(BMP180_ADDR, size);
-  int i;
-  while(Wire.available() != size);
-  for(i = 0; i < size; i++)
-  { 
-     data[i] = Wire.read();
-  }
-  return data;
-}
 
 void writeRegister_BMP180(unsigned char * data, int size){
   Wire.beginTransmission(BMP180_ADDR); 
@@ -213,14 +225,63 @@ void BMP180::getCalibrationData(){
   bmpMD |= Wire.read();
 }
 
-void BMP180:: getUT(){
-  writeRegisterBMP180(0xF4, 0x2E);
+void BMP180:: getbmpUT(){
+  writeRegisterBMP180(BMP180_CTRL_MEAS, 0x2E);
   delay(5);
   bmpUT = readRegisterBMP180(0xF6) << 8;
   bmpUT |= readRegisterBMP180(0xF7);
+  //Serial.println(bmpUT);
 }
 
-uint8_t readRegisterBMP180(uint8_t reg){
+void BMP180:: getbmpUP(){
+  writeRegisterBMP180(BMP180_CTRL_MEAS, 0x34);
+  delay(5);
+  int32_t result = (int32_t)readRegisterBMP180(0xF6) << 16;
+  result |= readRegisterBMP180(0xF7) << 8;
+  result |= readRegisterBMP180(0xF8);
+  bmpUP = result >> (8-OSS_BMP180);
+}
+
+void BMP180:: getbmpT(){
+  int32_t X1 = ((bmpUT - (int32_t)bmpAC6)*(int32_t)bmpAC5) >> 15;
+  int32_t X2 = ((int32_t)bmpMC<<11)/(X1+(int32_t)bmpMD);
+  int32_t B5 = X1 + X2;
+  bmpT = (B5+8) >> 4;
+}
+
+void BMP180:: getbmpB5(){
+  getbmpUT();
+  int32_t X1 = ((bmpUT - (int32_t)bmpAC6)*(int32_t)bmpAC5) >> 15;
+  int32_t X2 = ((int32_t)bmpMC<<11)/(X1+(int32_t)bmpMD);
+  bmpB5 = X1 + X2;
+}
+
+void BMP180:: getbmpP(){
+  getCalibrationData();
+  getbmpB5();
+  int32_t bmpB6 = bmpB5 - 4000;
+  int32_t X1 = ((int32_t)bmpB2*((bmpB6*bmpB6) >> 12))>>11;
+  int32_t X2 = ((int32_t)bmpAC2*bmpB6)>>11;
+  int32_t X3 = X1+X2;
+  int32_t bmpB3 = ((((int32_t)bmpAC1*4+X3)<<OSS_BMP180)+2) >> 2;
+  X1 = ((int32_t)bmpAC3*bmpB6)>>13;
+  X2 = ((int32_t)bmpB1 * ((bmpB6*bmpB6)>>12))>>16;
+  X3 = ((X1+X2)+2)>>2;
+  int32_t bmpB4 = ((uint32_t)bmpAC4*(X3+32768L))>>15;
+  int32_t bmpB7 = (bmpUP - bmpB3)*(50000UL >>OSS_BMP180);
+
+  if(bmpB7 < 0x80000000)
+    bmpP = (bmpB7 << 1)/(bmpB4);
+  else
+    bmpP = (bmpB7/bmpB4)<<1;
+  X1 = (bmpP>>8)*(bmpP>>8);
+  X1 = (X1*3038L) >> 16;
+  X2 = (-7357L*bmpP) >> 16;
+  bmpP = bmpP + (X1+X2+3791L)>>4;
+
+}
+
+uint8_t BMP180:: readRegisterBMP180(uint8_t reg){
   Wire.beginTransmission(BMP180_ADDR);
   Wire.write(reg);
   Wire.endTransmission(BMP180_ADDR);
@@ -235,6 +296,43 @@ void BMP180:: writeRegisterBMP180(uint8_t reg, uint8_t val){
   Wire.write(reg);
   Wire.write(val);
   Wire.endTransmission(BMP180_ADDR);
+}
+
+void BMP180::printCalibrationData(){
+  char buffer[100];
+  sprintf(buffer, "AC1:%d, AC2:%d, AC3:%d, AC4:%u, AC5:%u, AC6:%u, B1:%d, B2:%d, MB:%d, MC:%d, MD:%d", bmpAC1, bmpAC2, bmpAC3, bmpAC4, bmpAC5, bmpAC6, bmpB1, bmpB2, bmpMB, bmpMC, bmpMD);
+  Serial.println(buffer);
+}
+
+void BMP180::printUT(){
+  char buffer[50];
+  sprintf(buffer, "UT:%d", bmpUT);
+  Serial.println(buffer);
+}
+
+void BMP180::printUP(){
+  char buffer[50];
+  sprintf(buffer, "UP:%d", bmpUP);
+  Serial.println(buffer);
+}
+
+void BMP180::printT(){
+  char buffer[50];
+  sprintf(buffer, "T:%d", bmpT/10);
+  Serial.println(buffer);
+}
+
+void BMP180::printB5()
+{
+  char buffer[50];
+  sprintf(buffer, "B5:%d", bmpB5);
+  Serial.println(buffer);
+}
+
+void BMP180::printP(){
+  char buffer[50];
+  sprintf(buffer, "P:%d", bmpP);
+  Serial.println(buffer);
 }
 
 
