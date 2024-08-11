@@ -1,12 +1,15 @@
 #include <Wire.h>
+#include <SoftwareSerial.h>
 
 #define BMP180_ADDR 119
 #define DS3231_ADDR 104
 
 #define BMP180_CTRL_MEAS 0xF4
 #define BMP180_OUT_MSB 0xF6
-
 #define OSS_BMP180 0b00
+#define CLK_RATE_SPI 14000000
+
+const int rxPin = 13, txPin = 12;
 
 enum BMP180_REGISTERS : uint8_t{
   OUT_MSB = 0xF6,
@@ -14,11 +17,14 @@ enum BMP180_REGISTERS : uint8_t{
   CTRL_MEAS = 0xF4
 };
 
+SoftwareSerial mySerial(rxPin, txPin);
 void setup() {
   DDRD |= 0b00000010; //TX = output
   DDRD &= 0b11111110; //RX = input
   DHT11init();
   Serial.begin(9600);
+  mySerial.begin(9600);
+  mySerial.listen();
   Wire.begin();
 }
 
@@ -35,6 +41,7 @@ class DS3231{
   public:
     void initDS3231(uint16_t, uint8_t *);
     void getDataDS3231();
+    String getDateAndTime();
     void hourModeSelect(int h);
     void printDS3231();
 };
@@ -66,6 +73,8 @@ class BMP180{
     void getbmpT();
     void getbmpB5();
     void getbmpP();
+    int8_t getT();
+    int32_t getP();
 
     void printCalibrationData();
     void printUT();
@@ -76,30 +85,76 @@ class BMP180{
 };
 
 void loop() {
-  BMP180 a;
-  //delay(1000);
-
-  /*a.getbmpP();
-  a.printCalibrationData();
-  a.printB5();
-  a.printUT();
-  a.printT();*/
-  //a.getbmpP();
-  a.getbmpT();
-  a.getbmpP();
-  /*a.printCalibrationData();
-  a.printUT();
-  a.printB5();
-  a.printT();
-  a.printUP();
-  a.printP();*/
-  a.printT();
-  a.printP();
+  /*BMP180 b;
+  DS3231 d;
+  b.getbmpT();
+  b.getbmpP();
+  d.getDataDS3231();
+  b.printT();
+  b.printP();
+  d.printDS3231();
+  Serial.println(b.getT());
+  Serial.println(b.getP());
+  Serial.println(d.getDateAndTime());
+  int result = sendDataESP8266(b.getT(), b.getP(),d.getDateAndTime());
+  delay(1000);*/
+  clearBuffer();
   while(1){
-    
+    int x = sendTemp(50);
+    Serial.println(x);
+    delay(1000);
   }
 }
 
+int sendTemp(int8_t temp){
+  mySerial.write(temp);
+  while(!mySerial.available());
+  delay(50);
+  if(mySerial.readString() != "Received.")
+    return -1;
+  clearBuffer();
+  return 0;
+}
+
+void clearBuffer(){
+  while(mySerial.available() > 0){
+    mySerial.read();
+  }
+}
+
+
+int sendDataESP8266(int8_t temp, int32_t bp, String dateAndTime){
+  mySerial.write(temp);
+  while(mySerial.available() < 0);
+  if(mySerial.readString() != "Received temperature.")
+    return -1;
+  int8_t dummy = bp;
+  for(int i = 24; i >= 0; i-=8){
+    mySerial.write((int8_t)(dummy >> i));
+    while(mySerial.available() < 0);
+    if(mySerial.readString() != "Received.")
+      return -1;
+  }
+  while(mySerial.available() < 0);
+  if(mySerial.readString() != "Received barometric pressure.")
+    return -1;
+  mySerial.print(dateAndTime);
+  while(mySerial.available() < 0);
+  if(mySerial.readString() != "Received date and time.")
+    return -1;
+  return 0;
+}
+
+void getDataESP8266(uint8_t data){
+  String result;
+  if(mySerial.available() > 0){
+    while(mySerial.available()){
+      result += mySerial.read();
+    }
+  }
+  if(result == "Received")
+    Serial.println("Success!");
+}
 
 void DHT11init(){
   DDRD |= 0b00010000; //DHT11OUT = output
@@ -197,6 +252,12 @@ void DS3231::printDS3231(){
   char buffer[50];
   sprintf(buffer, "%d-%d-%d %d:%d:%d", year,month, date, hour, minute, second);
   Serial.println(buffer);
+}
+
+String DS3231::getDateAndTime(){
+  char buffer[50];
+  sprintf(buffer, "%d-%d-%d %d:%d:%d", year,month, date, hour, minute, second);
+  return buffer;
 }
 
 void BMP180::getCalibrationData(){
@@ -365,6 +426,14 @@ void BMP180::printP(){
   char buffer[50];
   sprintf(buffer, "P:%"PRId32, bmpP);
   Serial.println(buffer);
+}
+
+int32_t BMP180::getP(){
+  return bmpP;
+}
+
+int8_t BMP180::getT(){
+  return (int8_t)bmpT;
 }
 
 
