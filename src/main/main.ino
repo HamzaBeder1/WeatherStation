@@ -3,7 +3,6 @@
 
 #define BMP180_ADDR 119
 #define DS3231_ADDR 104
-
 #define BMP180_CTRL_MEAS 0xF4
 #define BMP180_OUT_MSB 0xF6
 #define OSS_BMP180 0b00
@@ -16,17 +15,6 @@ enum BMP180_REGISTERS : uint8_t{
   OUT_LSB = 0xF7,
   CTRL_MEAS = 0xF4
 };
-
-SoftwareSerial mySerial(rxPin, txPin);
-void setup() {
-  DDRD |= 0b00000010; //TX = output
-  DDRD &= 0b11111110; //RX = input
-  DHT11init();
-  Serial.begin(9600);
-  mySerial.begin(9600);
-  mySerial.listen();
-  Wire.begin();
-}
 
 class DS3231{
   private:
@@ -84,25 +72,30 @@ class BMP180{
     void printP();
 };
 
+SoftwareSerial mySerial(rxPin, txPin);
+
+void setup() {
+  DDRD |= 0b00000010; //TX = output
+  DDRD &= 0b11111110; //RX = input
+  Serial.begin(9600);
+  mySerial.begin(9600);
+  mySerial.listen();
+  Wire.begin();
+}
+
 void loop() {
-  /*BMP180 b;
+  BMP180 b;
   DS3231 d;
-  b.getbmpT();
-  b.getbmpP();
-  d.getDataDS3231();
-  b.printT();
-  b.printP();
-  d.printDS3231();
-  Serial.println(b.getT());
-  Serial.println(b.getP());
-  Serial.println(d.getDateAndTime());
+
   int result = sendDataESP8266(b.getT(), b.getP(),d.getDateAndTime());
-  delay(1000);*/
+  delay(1000);
   clearBuffer();
   while(1){
-    int x = sendTemp(50);
-    Serial.println(x);
-    delay(1000);
+    b.getbmpT();
+    b.getbmpP();
+    d.getDataDS3231();
+    int result = sendDataESP8266(b.getT(), b.getP(),d.getDateAndTime());
+    clearBuffer();
   }
 }
 
@@ -156,48 +149,15 @@ void getDataESP8266(uint8_t data){
     Serial.println("Success!");
 }
 
-void DHT11init(){
-  DDRD |= 0b00010000; //DHT11OUT = output
-  PORTD |= 0b00010000; //DHT11OUT = HIGH.
-}
-
-void getData(){
-  PORTD &= 0b11101111;
-  delay(18); //18ms MCU start signal.
-  PORTD |= 0b00010000; 
-  DDRD &= 0b11101111; //turn signal pin to input in order to read data.
-  while(bitRead(PIND, 4)); //wait for DHT response.
-  while(!bitRead(PIND, 4)); //DHT response.
-  while(bitRead(PIND, 4)); //DHT makes line HIGH.
-  unsigned char * b = readByte();
-  for(int i = 0; i < 5; i++){
-    for(int j = 0; j < 8; j++)
-      Serial.print(bitRead(b[i], j));
-    Serial.println();
+void DS3231:: initDS3231(uint16_t y, uint8_t * arr){
+  Wire.beginTransmission(DS3231_ADDR);
+  Wire.write(0x00); //go to first address for multibyte access.
+  for(int i = 0; i < 6; i++){
+    Wire.write(dec2bcd(arr[i]));
   }
-  
-  //delayMicroseconds(20);
-  DDRD &= 0b11101111;
-}
-
-unsigned char * readByte(){
-  unsigned char result[5] = {0,0,0,0,0};
-  for(int i = 0; i < 40; i++){
-    result[i/5] <<= 1;
-    while(!bitRead(PIND,4)); //wait for 50us low signal.
-    delayMicroseconds(30);
-    if(bitRead(PIND, 4))//if still HIGH, then a 1 was transmitted.
-      result[i/5] |= 1; //Take no action if a 0 was transmitted.
-    while(bitRead(PIND,4)); //wait for the bit to complete transmission.
-  }
-  return result;
-}
-
-
-void writeRegister_BMP180(unsigned char * data, int size){
-  Wire.beginTransmission(BMP180_ADDR); 
-  Wire.write(data, size);
+  Wire.write(dec2bcd(y));
   Wire.endTransmission(BMP180_ADDR);
+  hourModeSelect(12);
 }
 
 void DS3231::getDataDS3231(){
@@ -218,18 +178,6 @@ void DS3231::getDataDS3231(){
   this->date=  bcd2dec(Wire.read());
   this->month = bcd2dec(Wire.read());
   this->year = 2000 + bcd2dec(Wire.read());
-
-}
-
-void DS3231:: initDS3231(uint16_t y, uint8_t * arr){
-  Wire.beginTransmission(DS3231_ADDR);
-  Wire.write(0x00); //go to first address for multibyte access.
-  for(int i = 0; i < 6; i++){
-    Wire.write(dec2bcd(arr[i]));
-  }
-  Wire.write(dec2bcd(y));
-  Wire.endTransmission(BMP180_ADDR);
-  hourModeSelect(12);
 }
 
 void DS3231::hourModeSelect(int h){
@@ -435,7 +383,6 @@ int32_t BMP180::getP(){
 int8_t BMP180::getT(){
   return (int8_t)bmpT;
 }
-
 
 uint8_t bcd2dec(uint8_t bcd){
   return bcd/16*10 + bcd%16;

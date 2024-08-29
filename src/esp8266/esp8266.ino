@@ -4,7 +4,6 @@ const int rxPin = 14, txPin = 12;
 int8_t temp;
 int32_t bp = 0;
 String dateAndTime;
-
 SoftwareSerial mySerial(rxPin, txPin);
 
 void setup() {
